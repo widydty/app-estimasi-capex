@@ -2,93 +2,109 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from scipy.optimize import linprog
 
-# --- 1. PAGE CONFIG ---
-st.set_page_config(page_title="NPK Profit Optimizer", layout="wide", page_icon="💰")
+# --- 1. SYSTEM CONFIGURATION ---
+st.set_page_config(page_title="NPK Optimization System", layout="wide", page_icon="🏭")
 
+# CSS for Enterprise Dashboard Look
 st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-        .stApp { background-color: #ffffff; font-family: 'Inter', sans-serif; color: #171717; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         
-        /* HEADER */
-        h1, h2, h3 { color: #111827; letter-spacing: -0.5px; }
+        .stApp { background-color: #f3f4f6; font-family: 'Inter', sans-serif; color: #111827; }
         
-        /* METRIC CARDS - THE MONEY SHOT */
-        .money-card {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white; padding: 24px; border-radius: 12px;
-            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.2);
-            text-align: center;
+        /* KPI Cards */
+        .kpi-card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
-        .baseline-card {
-            background: #f3f4f6; color: #4b5563; padding: 20px;
-            border-radius: 12px; border: 1px solid #e5e7eb; text-align: center;
-        }
-        .metric-val-lg { font-size: 36px; font-weight: 800; }
-        .metric-lbl-sm { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
+        .kpi-label { font-size: 12px; text-transform: uppercase; color: #6b7280; font-weight: 600; letter-spacing: 0.05em; }
+        .kpi-value { font-size: 24px; font-weight: 700; color: #111827; margin-top: 5px; }
+        .kpi-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
         
-        /* SIDEBAR */
-        section[data-testid="stSidebar"] { background-color: #fafafa; border-right: 1px solid #e5e7eb; }
+        /* Tables */
+        div[data-testid="stDataFrame"] { background: white; border-radius: 8px; padding: 10px; }
         
-        /* TABLES */
-        div[data-testid="stDataFrame"] { border: 1px solid #e5e7eb; border-radius: 8px; }
+        /* Alerts */
+        .alert-box { padding: 12px; border-radius: 6px; font-size: 14px; margin-bottom: 10px; border-left: 4px solid; }
+        .alert-warn { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
+        .alert-error { background: #fef2f2; border-color: #ef4444; color: #b91c1c; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATABASE HARGA & SPEK (BISA DIEDIT) ---
-# Kita buat harga dinamis agar engineer bisa simulasi harga pasar
-if 'prices' not in st.session_state:
-    st.session_state.prices = {
-        "Urea": 6500, "DAP": 10500, "ZA": 2500, "KCl": 8200, "Clay": 250
-    }
-
-# Spesifikasi Nutrisi (BEDP-04)
-# Urea(46), DAP(16-45), ZA(21-0-0-24S), KCl(60), Clay(0)
-NUTRIENTS = {
-    "Urea": {"N": 46.0, "P": 0.0, "K": 0.0, "S": 0.0},
-    "DAP":  {"N": 16.0, "P": 45.0,"K": 0.0, "S": 0.0},
-    "ZA":   {"N": 21.0, "P": 0.0, "K": 0.0, "S": 24.0},
-    "KCl":  {"N": 0.0,  "P": 0.0, "K": 60.0,"S": 0.0},
-    "Clay": {"N": 0.0,  "P": 0.0, "K": 0.0, "S": 0.0}
+# --- 2. ENGINEERING DATABASE ---
+# Compositions based on BEDP-04
+# Prices are default placeholders (User can edit)
+RAW_MATS = {
+    "Urea":         {"N": 46.0, "P": 0.0, "K": 0.0, "S": 0.0, "H2O": 0.5, "Type": "Urea",   "Price": 6500},
+    "ZA (AmSulf)":  {"N": 21.0, "P": 0.0, "K": 0.0, "S": 24.0,"H2O": 1.0, "Type": "Salt",   "Price": 2500},
+    "DAP (16-45)":  {"N": 16.0, "P": 45.0,"K": 0.0, "S": 0.0, "H2O": 1.5, "Type": "Salt",   "Price": 10500},
+    "TSP (0-46)":   {"N": 0.0,  "P": 46.0,"K": 0.0, "S": 0.0, "H2O": 4.0, "Type": "Acidic", "Price": 9800},
+    "KCl (MOP)":    {"N": 0.0,  "P": 0.0, "K": 60.0,"S": 0.0, "H2O": 0.5, "Type": "Salt",   "Price": 8200},
+    "ZK (SOP)":     {"N": 0.0,  "P": 0.0, "K": 50.0,"S": 18.0,"H2O": 0.5, "Type": "Salt",   "Price": 12000},
+    "Dolomite":     {"N": 0.0,  "P": 0.0, "K": 0.0, "S": 0.0, "H2O": 0.5, "Type": "Filler", "Price": 300},
+    "Clay":         {"N": 0.0,  "P": 0.0, "K": 0.0, "S": 0.0, "H2O": 2.0, "Type": "Filler", "Price": 250}
 }
 
-# DATA GUARANTEE (BEDP-02) - Sebagai KOMPARATOR (Baseline Boros)
-GUARANTEE_RECIPE = {
+# Design Guarantee Data (BEDP-02) for Benchmark
+GUARANTEE_REF = {
     "15-15-15": {"Urea": 173.1, "DAP": 343.3, "KCl": 257.5, "ZA": 94.9, "Clay": 161.2},
     "15-10-12": {"Urea": 215.3, "DAP": 228.9, "KCl": 206.0, "ZA": 89.8, "Clay": 290.0},
     "16-16-16": {"Urea": 230.9, "DAP": 366.3, "KCl": 274.7, "ZA": 0.0,  "Clay": 158.2}
 }
 
-# --- 3. OPTIMIZATION ENGINE ---
-def calculate_lcf(tn, tp, tk, ts, total_mass=1000):
-    mats = list(NUTRIENTS.keys())
-    n_vars = len(mats)
+# Product Selling Price Assumption (Rp/kg) - For Margin Calc
+PRODUCT_PRICE = 14000 
+
+# --- 3. LOGIC ENGINE ---
+
+def check_compatibility(selected_mats):
+    """Engineering Safety Checks"""
+    issues = []
+    mats = set(selected_mats)
     
-    # Objective: Minimize Cost based on CURRENT prices
-    c = [st.session_state.prices[m] for m in mats]
+    # Rule 1: Urea vs TSP (Hygroscopicity & Water Release)
+    if "Urea" in mats and "TSP (0-46)" in mats:
+        issues.append("CRITICAL: Urea and TSP incompatibility. Mixture will become wet/sticky.")
+        
+    return issues
+
+def calculate_optimization(tn, tp, tk, ts, selected_mats, prices):
+    mats = list(selected_mats)
+    n_vars = len(mats)
+    total_mass = 1000.0 # Basis
+    
+    # Objective: Minimize Cost
+    c = [prices[m] for m in mats]
     
     # Constraints
-    A_ub = []
+    A_ub = [] # Inequality
     b_ub = []
     
-    # Nutrients >= Target
-    # Linprog uses <=, so multiply by -1
-    A_ub.append([-NUTRIENTS[m]["N"]/100 for m in mats])
+    # Nutrients (Target is Minimum) -> -Ax <= -b
+    A_ub.append([-RAW_MATS[m]["N"]/100 for m in mats])
     b_ub.append(-tn/100 * total_mass)
     
-    A_ub.append([-NUTRIENTS[m]["P"]/100 for m in mats])
+    A_ub.append([-RAW_MATS[m]["P"]/100 for m in mats])
     b_ub.append(-tp/100 * total_mass)
     
-    A_ub.append([-NUTRIENTS[m]["K"]/100 for m in mats])
+    A_ub.append([-RAW_MATS[m]["K"]/100 for m in mats])
     b_ub.append(-tk/100 * total_mass)
     
     if ts > 0:
-        A_ub.append([-NUTRIENTS[m]["S"]/100 for m in mats])
-        b_ub.append(-ts/100 * total_basis)
-    
+        A_ub.append([-RAW_MATS[m]["S"]/100 for m in mats])
+        b_ub.append(-ts/100 * total_mass)
+        
+    # Engineering Constraint: Limit Filler (Max 30% to maintain granule hardness)
+    filler_row = [1.0 if RAW_MATS[m]["Type"] == "Filler" else 0.0 for m in mats]
+    if sum(filler_row) > 0:
+        A_ub.append(filler_row)
+        b_ub.append(300.0) # Max 300kg filler
+        
     # Equality: Total Mass = 1000
     A_eq = [[1.0] * n_vars]
     b_eq = [total_mass]
@@ -100,155 +116,176 @@ def calculate_lcf(tn, tp, tk, ts, total_mass=1000):
 
 # --- 4. UI LAYOUT ---
 
-# SIDEBAR: MARKET PRICES
+# SIDEBAR
 with st.sidebar:
-    st.title("💲 Market Prices")
-    st.caption("Update prices to see savings impact (IDR/kg)")
+    st.subheader("1. Grade Specification")
+    grade_sel = st.selectbox("Select Grade", ["15-15-15", "15-10-12", "16-16-16", "Custom"])
     
-    new_prices = {}
-    for mat, price in st.session_state.prices.items():
-        new_prices[mat] = st.number_input(f"{mat}", value=price, step=100)
-    st.session_state.prices = new_prices
+    # Auto-fill based on selection
+    if grade_sel == "15-15-15": def_n, def_p, def_k, def_s = 15.0, 15.0, 15.0, 2.0
+    elif grade_sel == "15-10-12": def_n, def_p, def_k, def_s = 15.0, 10.0, 12.0, 2.0
+    elif grade_sel == "16-16-16": def_n, def_p, def_k, def_s = 16.0, 16.0, 16.0, 0.0
+    else: def_n, def_p, def_k, def_s = 15.0, 15.0, 15.0, 0.0
     
-    st.markdown("---")
-    st.caption("Optimization Engine: Scipy Linear Programming")
-
-# MAIN CONTENT
-st.title("NPK Profit Hunter")
-st.markdown("### Optimization vs Design Guarantee Comparison")
-
-# 1. SELECT GRADE
-c_sel, c_prod = st.columns([1, 2])
-with c_sel:
-    grade = st.selectbox("Select Production Grade", ["15-15-15", "15-10-12", "16-16-16"])
+    c1, c2 = st.columns(2)
+    tn = c1.number_input("N %", value=def_n)
+    tp = c2.number_input("P2O5 %", value=def_p)
+    tk = c1.number_input("K2O %", value=def_k)
+    ts = c2.number_input("S %", value=def_s)
     
-    # Set Targets based on selection
-    if grade == "15-15-15": t_n, t_p, t_k, t_s = 15, 15, 15, 2
-    elif grade == "15-10-12": t_n, t_p, t_k, t_s = 15, 10, 12, 2
-    elif grade == "16-16-16": t_n, t_p, t_k, t_s = 16, 16, 16, 0
+    st.subheader("2. Raw Material Prices (IDR/kg)")
+    st.caption("Adjust to current market rates")
+    
+    current_prices = {}
+    for m, data in RAW_MATS.items():
+        current_prices[m] = st.number_input(f"{m}", value=data["Price"], step=100)
+        
+    st.subheader("3. Inventory Control")
+    active_mats = st.multiselect("Available Materials", list(RAW_MATS.keys()), default=["Urea", "ZA (AmSulf)", "DAP (16-45)", "KCl (MOP)", "Clay"])
 
-with c_prod:
-    production_rate = st.number_input("Annual Production Target (Ton/Year)", value=100000, step=10000)
+    run_calc = st.button("RUN OPTIMIZATION", type="primary", use_container_width=True)
 
+# MAIN AREA
+st.title("NPK Production Optimization System")
+st.markdown(f"**Target Formulation:** NPK {tn}-{tp}-{tk}-{ts}S | **Basis:** 1000 kg (Wet Basis)")
 st.markdown("---")
 
-# 2. EXECUTE CALCULATIONS
-# A. Hitung Cost Baseline (Guarantee)
-guar_recipe = GUARANTEE_RECIPE[grade]
-cost_baseline = sum([guar_recipe[m] * st.session_state.prices[m] for m in guar_recipe])
-total_mass_guar = sum(guar_recipe.values())
-
-# B. Hitung Cost Optimal (LCF)
-res, mat_list = calculate_lcf(t_n, t_p, t_k, t_s)
-
-if res.success:
-    opt_masses = res.x
-    cost_optimal = res.fun
-    
-    # Hitung Savings
-    saving_per_ton = cost_baseline - cost_optimal
-    total_saving_year = saving_per_ton * production_rate
-    
-    # --- DISPLAY MONEY SHOT ---
-    c1, c2, c3 = st.columns(3)
-    
-    with c1:
-        st.markdown(f"""
-        <div class="baseline-card">
-            <div class="metric-lbl-sm">GUARANTEE RECIPE COST</div>
-            <div class="metric-val-lg" style="color:#6b7280">Rp {cost_baseline:,.0f}</div>
-            <div style="font-size:12px">per Ton Product</div>
-        </div>
-        """, unsafe_allow_html=True)
+if run_calc:
+    # 1. COMPATIBILITY CHECK
+    issues = check_compatibility(active_mats)
+    if issues:
+        for issue in issues:
+            st.error(issue)
+        st.stop()
         
-    with c2:
-        st.markdown(f"""
-        <div class="baseline-card" style="background: #ecfdf5; border-color: #10b981;">
-            <div class="metric-lbl-sm" style="color: #047857;">OPTIMIZED LCF COST</div>
-            <div class="metric-val-lg" style="color: #059669;">Rp {cost_optimal:,.0f}</div>
-            <div style="font-size:12px">per Ton Product</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        st.markdown(f"""
-        <div class="money-card">
-            <div class="metric-lbl-sm">POTENTIAL PROFIT INCREASE</div>
-            <div class="metric-val-lg">Rp {total_saving_year/1e9:,.1f} M</div>
-            <div style="font-size:12px">per Year ({production_rate/1000}k Tons)</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # --- DETAILED COMPARISON TABLE ---
-    st.subheader("📊 Recipe Breakdown Comparison (kg/ton)")
+    # 2. OPTIMIZATION
+    res, mat_order = calculate_optimization(tn, tp, tk, ts, active_mats, current_prices)
     
-    # Prepare Data
-    opt_recipe = dict(zip(mat_list, opt_masses))
-    
-    comp_data = []
-    for mat in NUTRIENTS.keys():
-        val_guar = guar_recipe.get(mat, 0)
-        val_opt = opt_recipe.get(mat, 0)
-        price = st.session_state.prices[mat]
+    if res.success:
+        masses = res.x
+        total_cost = res.fun
         
-        comp_data.append({
-            "Raw Material": mat,
-            "Guarantee (Design)": val_guar,
-            "Optimized (LCF)": val_opt,
-            "Delta (kg)": val_opt - val_guar,
-            "Cost Impact (Rp)": (val_opt - val_guar) * price
-        })
+        # Process Result Data
+        df = pd.DataFrame({"Material": mat_order, "Mass (kg)": masses})
+        df = df[df["Mass (kg)"] > 0.1].sort_values("Mass (kg)", ascending=False)
+        df["Price"] = df["Material"].apply(lambda x: current_prices[x])
+        df["Cost (IDR)"] = df["Mass (kg)"] * df["Price"]
         
-    df_comp = pd.DataFrame(comp_data)
-    
-    # Styling Table
-    def color_delta(val):
-        color = '#ef4444' if val > 0 else '#10b981' # Merah jika cost naik, Hijau jika hemat
-        return f'color: {color}; font-weight: bold;'
-
-    st.dataframe(
-        df_comp.style.format("{:.2f}", subset=["Guarantee (Design)", "Optimized (LCF)", "Delta (kg)"])
-                 .format("Rp {:,.0f}", subset=["Cost Impact (Rp)"])
-                 .applymap(lambda x: "color: red;" if x > 0 else "color: green;", subset=["Cost Impact (Rp)"]),
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # --- VISUALIZATION ---
-    col_chart1, col_chart2 = st.columns(2)
-    
-    with col_chart1:
-        # Comparison Bar Chart
-        fig = go.Figure()
-        fig.add_trace(go.Bar(name='Guarantee', x=df_comp['Raw Material'], y=df_comp['Guarantee (Design)'], marker_color='#9ca3af'))
-        fig.add_trace(go.Bar(name='Optimized', x=df_comp['Raw Material'], y=df_comp['Optimized (LCF)'], marker_color='#10b981'))
-        fig.update_layout(title="Material Consumption Profile", barmode='group')
-        st.plotly_chart(fig, use_container_width=True)
+        # Engineering Calculations
+        # Moisture Load (Air yang harus diuapkan di Dryer)
+        df["Moisture Content"] = df["Material"].apply(lambda x: RAW_MATS[x]["H2O"])
+        df["Water Mass (kg)"] = (df["Mass (kg)"] * df["Moisture Content"]) / 100
+        total_water_in = df["Water Mass (kg)"].sum()
+        target_product_moisture = 1.5 # Target 1.5% moisture in product
+        evaporation_load = total_water_in - (1000 * target_product_moisture/100)
+        if evaporation_load < 0: evaporation_load = 0
         
-    with col_chart2:
-        # Waterfall Chart (Savings)
-        fig2 = go.Figure(go.Waterfall(
-            name = "20", orientation = "v",
-            measure = ["relative"] * len(df_comp),
-            x = df_comp['Raw Material'],
-            textposition = "outside",
-            text = [f"{x/1000:.0f}k" for x in df_comp['Cost Impact (Rp)']],
-            y = df_comp['Cost Impact (Rp)'],
-            connector = {"line":{"color":"rgb(63, 63, 63)"}},
-        ))
-        fig2.update_layout(title="Cost Impact per Material (Waterfall)")
-        st.plotly_chart(fig2, use_container_width=True)
+        # Financials
+        rm_cost_per_ton = df["Cost (IDR)"].sum()
+        sales_revenue = 1000 * PRODUCT_PRICE
+        gross_margin = sales_revenue - rm_cost_per_ton
+        margin_percent = (gross_margin / sales_revenue) * 100
+        
+        # --- SECTION A: KEY PERFORMANCE INDICATORS ---
+        c1, c2, c3, c4 = st.columns(4)
+        
+        with c1:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">RM Cost / Ton</div>
+                <div class="kpi-value">Rp {rm_cost_per_ton/1000000:.2f} Jt</div>
+                <div class="kpi-sub">Optimized Formula Cost</div>
+            </div>""", unsafe_allow_html=True)
+            
+        with c2:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Est. Margin</div>
+                <div class="kpi-value" style="color: #059669;">{margin_percent:.1f}%</div>
+                <div class="kpi-sub">Rp {gross_margin/1000000:.2f} Jt / Ton</div>
+            </div>""", unsafe_allow_html=True)
+            
+        with c3:
+            # Comparison with Guarantee Baseline (If available)
+            if grade_sel in GUARANTEE_REF:
+                guar_recipe = GUARANTEE_REF[grade_sel]
+                # Calculate Baseline Cost using CURRENT prices
+                base_cost = sum([qty * current_prices.get(m, 0) for m, qty in guar_recipe.items() if m in current_prices])
+                delta = base_cost - rm_cost_per_ton
+                color = "#059669" if delta > 0 else "#dc2626"
+                
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">Vs. Design Basis</div>
+                    <div class="kpi-value" style="color:{color}">Rp {delta/1000:,.0f} k</div>
+                    <div class="kpi-sub">Savings per Ton</div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                 st.markdown(f"""<div class="kpi-card"><div class="kpi-label">Vs. Design</div><div class="kpi-value">-</div></div>""", unsafe_allow_html=True)
 
-    # --- ENGINEERING NOTE ---
-    st.info(f"""
-    💡 **Optimization Insight:**
-    Total massa resep optimal adalah **1000 kg** (Basis Teoritis). 
-    Sedangkan resep Guarantee totalnya **{total_mass_guar:.1f} kg** (karena ada margin *loss*).
-    Penghematan terbesar didapat dari pengurangan *over-formulation* dan pemilihan bahan baku yang tepat sesuai harga pasar saat ini.
-    """)
+        with c4:
+            st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Dryer Load</div>
+                <div class="kpi-value" style="color: #d97706;">{evaporation_load:.1f} kg</div>
+                <div class="kpi-sub">H2O Evaporation / Ton</div>
+            </div>""", unsafe_allow_html=True)
+            
+        st.markdown("---")
+        
+        # --- SECTION B: DETAILED RECIPE & COMPOSITION ---
+        c_table, c_chart = st.columns([1.5, 1])
+        
+        with c_table:
+            st.subheader("📋 Production Recipe (Solid Feed)")
+            st.caption("Data input untuk DCS Weigh Feeder System")
+            
+            # Format Table
+            df_display = df[["Material", "Mass (kg)", "Moisture Content", "Cost (IDR)"]].copy()
+            df_display["% Mix"] = (df_display["Mass (kg)"] / 1000) * 100
+            
+            st.dataframe(
+                df_display,
+                column_config={
+                    "Mass (kg)": st.column_config.NumberColumn(format="%.2f"),
+                    "Moisture Content": st.column_config.NumberColumn(label="H2O %", format="%.1f%%"),
+                    "% Mix": st.column_config.ProgressColumn(format="%.1f%%", min_value=0, max_value=100),
+                    "Cost (IDR)": st.column_config.NumberColumn(format="Rp %.0f")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Composition Checks (Engineering Limits)
+            urea_mass = df[df["Material"] == "Urea"]["Mass (kg)"].sum()
+            if urea_mass > 500:
+                st.markdown(f"<div class='alert-warn'>⚠️ **High Urea Alert:** Urea content is {urea_mass:.0f} kg (>50%). Monitor dryer outlet temperature to prevent melting.</div>", unsafe_allow_html=True)
+                
+        with c_chart:
+            st.subheader("Batch Composition")
+            fig = go.Figure(data=[go.Pie(labels=df['Material'], values=df['Mass (kg)'], hole=.4)])
+            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Nutrient Verification Chart
+            act_n = sum(row["Mass (kg)"] * RAW_MATS[row["Material"]]["N"]/100 for _, row in df.iterrows()) / 10
+            act_p = sum(row["Mass (kg)"] * RAW_MATS[row["Material"]]["P"]/100 for _, row in df.iterrows()) / 10
+            act_k = sum(row["Mass (kg)"] * RAW_MATS[row["Material"]]["K"]/100 for _, row in df.iterrows()) / 10
+            act_s = sum(row["Mass (kg)"] * RAW_MATS[row["Material"]]["S"]/100 for _, row in df.iterrows()) / 10
+            
+            fig_ver = go.Figure(data=[
+                go.Bar(name='Target', x=['N','P','K','S'], y=[tn, tp, tk, ts], marker_color='#9ca3af'),
+                go.Bar(name='Achieved', x=['N','P','K','S'], y=[act_n, act_p, act_k, act_s], marker_color='#10b981')
+            ])
+            fig_ver.update_layout(title="Nutrient Validation (%)", barmode='group', height=250, margin=dict(t=30, b=0, l=0, r=0))
+            st.plotly_chart(fig_ver, use_container_width=True)
+
+    else:
+        st.error("Optimization Failed: Cannot meet grade targets with available materials.")
 
 else:
-    st.error("Optimization Failed. Check Constraints.")
+    st.info("Select parameters on the sidebar and click RUN to optimize.")
 
+# --- FOOTER ---
 st.markdown("---")
-st.caption("Process Intelligence System | Developed for NPK Granular 3 Project")
+st.caption("System ID: NPK-OPT-2025 | Linear Programming Engine | Calculation Basis: 1 Metric Ton Product")
