@@ -209,7 +209,7 @@ with st.sidebar:
     calc_btn = st.button("RUN OPTIMIZATION", type="primary")
 
 # Main Content
-st.markdown("## 🏭 NPK Production Intelligence")
+st.markdown("## 🏭 Optimalisasi Formula NPK")
 st.markdown(f"Optimization Target: **NPK {tn}-{tp}-{tk}-{ts}S** | Basis: **1 Metric Ton**")
 st.markdown("---")
 
