@@ -2,138 +2,128 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="NEXUS | Engineering Estimator",
+    page_title="NEXUS Estimator",
     layout="wide",
-    page_icon="💠",
-    initial_sidebar_state="collapsed" # Sidebar sembunyi agar layar penuh (Cinematic)
+    page_icon="🏢",
+    initial_sidebar_state="expanded"
 )
 
-# --- 2. ENTERPRISE CSS INJECTION ---
+# --- 2. PREMIER LIGHT THEME CSS (Gaya Apple/Stripe) ---
 st.markdown("""
     <style>
-        /* IMPORT PREMIUM FONT */
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;800&display=swap');
+        /* Import Professional Font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         
-        /* RESET & BASE STYLE */
+        /* Main Background - Clean White/Light Grey */
         .stApp {
-            background-color: #09090b; /* Ultra Dark Grey */
-            font-family: 'Manrope', sans-serif;
+            background-color: #f8fafc; /* Slate-50 */
+            font-family: 'Inter', sans-serif;
+            color: #0f172a; /* Slate-900 */
         }
         
-        /* REMOVE STREAMLIT BRANDING */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
+        /* Sidebar */
+        section[data-testid="stSidebar"] {
+            background-color: #ffffff;
+            border-right: 1px solid #e2e8f0;
+        }
         
-        /* CARD SYSTEM (Technical Look) */
-        .tech-card {
-            background-color: #121217;
-            border: 1px solid #27272a;
-            border-radius: 8px;
+        /* Card Container Style */
+        .premium-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0; /* Subtle border */
+            border-radius: 12px;
             padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            margin-bottom: 20px;
             height: 100%;
-            transition: all 0.3s ease;
-        }
-        .tech-card:hover {
-            border-color: #3f3f46;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
         }
         
-        /* TYPOGRAPHY */
-        h1, h2, h3 {
-            color: #ffffff !important;
-            font-weight: 800 !important;
-            letter-spacing: -0.02em;
-        }
-        .label-text {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #71717a; /* Muted text */
-            margin-bottom: 8px;
-        }
-        .value-text {
-            font-size: 36px;
-            font-weight: 800;
-            color: #fafafa;
-            line-height: 1.1;
-        }
-        .unit-text {
-            font-size: 14px;
-            color: #a1a1aa;
-            font-weight: 400;
-        }
-        
-        /* CUSTOM INPUT WIDGETS */
-        .stSelectbox > div > div {
-            background-color: #18181b;
-            border: 1px solid #27272a;
+        /* Result Card (Highlighted) */
+        .result-card {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); /* Royal Blue Gradient */
+            border-radius: 12px;
+            padding: 24px;
             color: white;
-            border-radius: 6px;
+            box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4 {
+            font-weight: 700 !important;
+            color: #1e293b !important; /* Slate-800 */
+            letter-spacing: -0.5px;
+        }
+        
+        .label-small {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 1px;
+            color: #64748b; /* Slate-500 */
+            margin-bottom: 4px;
+        }
+        
+        .value-large {
+            font-size: 32px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        
+        .value-white {
+            font-size: 36px;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 10px 0;
+        }
+        
+        /* Customizing Streamlit Widgets */
+        .stSelectbox > div > div {
+            background-color: white;
+            border-color: #cbd5e1;
+            color: #334155;
         }
         .stSlider > div > div > div > div {
-            background-color: #2dd4bf; /* Teal Accent */
+            background-color: #2563eb; /* Blue-600 */
         }
         
-        /* STATUS INDICATOR */
-        .status-pill {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 100px;
-            font-size: 11px;
-            font-weight: 700;
-            background-color: rgba(45, 212, 191, 0.1);
-            color: #2dd4bf;
-            border: 1px solid rgba(45, 212, 191, 0.2);
-        }
+        /* Remove Default Branding */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
         
-        /* DIVIDER */
-        hr {
-            border-color: #27272a;
-        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATABASE (TURTON 2018 EXPANDED) ---
-# Database Equipment lengkap dengan parameter visual
+# --- 3. ENGINEERING DATA (FIXED TYPES) ---
+# Semua angka min/max dipastikan float agar tidak error
 EQUIPMENT_DB = {
     "Centrifugal Pump": {
-        "icon": "💧", "min": 1, "max": 300, "unit": "kW", "bm": 3.30,
+        "icon": "💧", "min": 1.0, "max": 300.0, "unit": "kW", "bm": 3.30,
         "k": [3.3892, 0.0536, 0.1538]
     },
     "Compressor (Centrifugal)": {
-        "icon": "💨", "min": 450, "max": 3000, "unit": "kW", "bm": 2.15,
+        "icon": "💨", "min": 450.0, "max": 3000.0, "unit": "kW", "bm": 2.15,
         "k": [2.2891, 1.3604, -0.1027]
     },
     "Shell & Tube Exchanger": {
-        "icon": "🔥", "min": 10, "max": 1000, "unit": "m²", "bm": 3.17,
+        "icon": "🔥", "min": 10.0, "max": 1000.0, "unit": "m²", "bm": 3.17,
         "k": [4.3247, -0.3030, 0.1634]
     },
     "Distillation Column": {
-        "icon": "tower", "min": 4, "max": 100, "unit": "m (Height)", "bm": 4.16,
+        "icon": "🗼", "min": 4.0, "max": 100.0, "unit": "m (Height)", "bm": 4.16,
         "k": [3.4974, 0.4485, 0.1074]
     },
     "Storage Tank (API)": {
-        "icon": "🛢️", "min": 100, "max": 20000, "unit": "m³", "bm": 1.50,
+        "icon": "🛢️", "min": 100.0, "max": 20000.0, "unit": "m³", "bm": 1.50,
         "k": [4.8509, -0.3973, 0.1445]
     },
-    "Reactor (CSTR)": {
-        "icon": "⚗️", "min": 0.5, "max": 100, "unit": "m³", "bm": 4.00,
-        "k": [3.4974, 0.4485, 0.1074] # Approx vessel
-    },
     "Conveyor (Belt)": {
-        "icon": "🛤️", "min": 10, "max": 2000, "unit": "m² (Area)", "bm": 1.60,
+        "icon": "🛤️", "min": 10.0, "max": 2000.0, "unit": "m² (Area)", "bm": 1.60,
         "k": [3.6638, 0.8666, -0.0352]
-    },
-    "Crusher": {
-        "icon": "🔨", "min": 10, "max": 1000, "unit": "kW", "bm": 2.00,
-        "k": [3.2362, 0.1559, 0.2449]
     }
 }
 
@@ -145,154 +135,143 @@ MATERIAL_FACTORS = {
     "Nickel Alloy": 3.6
 }
 
-# --- 4. CALCULATION ENGINE ---
+# --- 4. CALCULATION LOGIC ---
 def calculate_capex(equip_key, capacity, material_key, cepci_idx):
     eq = EQUIPMENT_DB[equip_key]
-    
-    # 1. Base Cost (Turton Log Formula)
     log_A = np.log10(capacity)
     log_Cp = eq['k'][0] + eq['k'][1]*log_A + eq['k'][2]*(log_A**2)
     base_cost = 10**log_Cp
-    
-    # 2. Factors
     total_cost = base_cost * eq['bm'] * MATERIAL_FACTORS[material_key]
-    
-    # 3. Inflation (Base 2001 = 397)
-    current_cost = total_cost * (cepci_idx / 397)
+    current_cost = total_cost * (cepci_idx / 397) # Base 2001
     return current_cost
 
-# --- 5. HEADER SECTION ---
-c1, c2 = st.columns([3, 1])
-with c1:
-    st.markdown("#### <span style='color:#2dd4bf'>NEXUS</span> INTELLIGENCE SYSTEM", unsafe_allow_html=True)
-    st.markdown("# Capital Expenditure Estimator")
-with c2:
-    st.markdown("<div style='text-align:right; padding-top:10px;'><span class='status-pill'>● SYSTEM ONLINE</span></div>", unsafe_allow_html=True)
+# --- 5. DASHBOARD LAYOUT ---
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# --- 6. MAIN CONTROL PANEL (The Cockpit) ---
-# Kita bagi layar jadi: Kiri (Input) dan Kanan (Output) dengan rasio 1:2
-left_panel, right_panel = st.columns([1, 2], gap="large")
-
-with left_panel:
-    st.markdown("""
-    <div class="tech-card">
-        <div class="label-text">CONFIGURATION</div>
-    """, unsafe_allow_html=True)
+# Sidebar: Controls Only
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/2504/2504928.png", width=40)
+    st.markdown("### Project Controls")
+    st.markdown("---")
     
-    # Inputs
+    # Input 1: Equipment
     selected_eq = st.selectbox("Equipment Type", list(EQUIPMENT_DB.keys()))
-    
     eq_data = EQUIPMENT_DB[selected_eq]
-    st.markdown(f"<div style='margin-top:20px; margin-bottom:5px; color:#a1a1aa; font-size:13px;'>Capacity ({eq_data['unit']})</div>", unsafe_allow_html=True)
-    capacity = st.slider("Capacity", eq_data['min'], eq_data['max'], float(eq_data['min']), label_visibility="collapsed")
     
-    selected_mat = st.selectbox("Material Grade", list(MATERIAL_FACTORS.keys()))
+    # Input 2: Capacity (BUG FIX: Explicit Float Casting)
+    st.markdown(f"**Design Capacity ({eq_data['unit']})**")
+    min_val = float(eq_data['min'])
+    max_val = float(eq_data['max'])
+    default_val = float(min_val)
     
-    st.markdown("<hr>", unsafe_allow_html=True)
+    capacity = st.slider("Select Capacity", 
+                         min_value=min_val, 
+                         max_value=max_val, 
+                         value=default_val,
+                         label_visibility="collapsed")
     
-    st.markdown("<div class='label-text'>MARKET PARAMETERS</div>", unsafe_allow_html=True)
+    # Input 3: Material
+    selected_mat = st.selectbox("Material Class", list(MATERIAL_FACTORS.keys()))
+    
+    st.markdown("---")
+    
+    # Input 4: Economics
+    st.markdown("**Economic Basis**")
     cepci = st.number_input("CEPCI Index", value=815)
     usd_rate = st.number_input("USD/IDR Rate", value=15850, step=50)
     
-    st.markdown("</div>", unsafe_allow_html=True) # End Card
+    st.markdown("---")
+    st.caption("v5.1 Stable | Enterprise Edition")
 
-with right_panel:
-    # REAL-TIME CALCULATION
-    cost_usd = calculate_capex(selected_eq, capacity, selected_mat, cepci)
-    cost_idr = cost_usd * usd_rate
-    
-    # --- ROW 1: BIG METRICS ---
-    m1, m2, m3 = st.columns(3)
-    
-    with m1:
-        st.markdown(f"""
-        <div class="tech-card">
-            <div class="label-text">ESTIMATED COST (IDR)</div>
-            <div class="value-text">Rp {cost_idr/1000000:,.0f}</div>
-            <div class="unit-text">Juta Rupiah</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with m2:
-        st.markdown(f"""
-        <div class="tech-card">
-            <div class="label-text">USD VALUATION</div>
-            <div class="value-text">${cost_usd:,.0f}</div>
-            <div class="unit-text">Global Market Price</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with m3:
-        st.markdown(f"""
-        <div class="tech-card">
-            <div class="label-text">ACCURACY CLASS</div>
-            <div class="value-text">Cl. 5</div>
-            <div class="unit-text">±30% Preliminary</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- ROW 2: ADVANCED CHART ---
-    # Chart harus terlihat premium (Minimalis, tanpa grid kotor)
-    x_range = np.linspace(eq_data['min'], eq_data['max'], 100)
+# Main Content Area
+st.markdown("### Capital Expenditure Estimator")
+st.markdown("Parametric cost estimation based on **Turton et al. (2018)** methodology.")
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Perform Calculation
+cost_usd = calculate_capex(selected_eq, capacity, selected_mat, cepci)
+cost_idr = cost_usd * usd_rate
+
+# --- ROW 1: THE "MONEY SHOT" (Highlight Card) ---
+c1, c2 = st.columns([1, 2])
+
+with c1:
+    st.markdown(f"""
+    <div class="result-card">
+        <div style="opacity: 0.8; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Total Estimated Cost</div>
+        <div class="value-white">Rp {cost_idr/1000000:,.0f} <span style="font-size:16px">Juta</span></div>
+        <div style="background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 20px; display: inline-block; font-size: 12px;">
+            USD {cost_usd:,.0f}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Detail Card Below Money Shot
+    st.markdown(f"""
+    <div class="premium-card">
+        <div class="label-small">CONFIGURATION</div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+            <span style="color:#64748b">Equipment</span>
+            <span style="font-weight:600; color:#0f172a">{selected_eq}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+            <span style="color:#64748b">Capacity</span>
+            <span style="font-weight:600; color:#0f172a">{capacity} {eq_data['unit']}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="color:#64748b">Material</span>
+            <span style="font-weight:600; color:#0f172a">{selected_mat}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c2:
+    # --- CHART (Professional White Theme) ---
+    st.markdown(f"""
+    <div class="premium-card" style="height: 100%;">
+        <div class="label-small">COST SENSITIVITY ANALYSIS</div>
+        <h4 style="margin-top:0; margin-bottom:20px;">Impact of Capacity on Price</h4>
+    """, unsafe_allow_html=True)
+    
+    # Generate Data
+    x_range = np.linspace(min_val, max_val, 100)
     y_range = [calculate_capex(selected_eq, x, selected_mat, cepci) * usd_rate for x in x_range]
     
     fig = go.Figure()
     
-    # Gradient Fill Area
+    # Line
     fig.add_trace(go.Scatter(
         x=x_range, y=y_range,
-        fill='tozeroy',
         mode='lines',
-        line=dict(width=3, color='#2dd4bf'), # Teal Line
-        fillcolor='rgba(45, 212, 191, 0.1)', # Teal Transparent
+        line=dict(color='#2563eb', width=3), # Royal Blue
         name='Cost Curve'
     ))
     
-    # Current Point Marker
+    # Point
     fig.add_trace(go.Scatter(
         x=[capacity], y=[cost_idr],
         mode='markers',
-        marker=dict(size=18, color='#ffffff', line=dict(width=3, color='#2dd4bf')),
+        marker=dict(color='#1e40af', size=14, line=dict(color='white', width=2)),
         name='Current Selection'
     ))
     
     fig.update_layout(
-        title=dict(text="CAPEX SENSITIVITY CURVE", font=dict(family="Manrope", size=14, color="#71717a")),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        height=350,
-        margin=dict(l=0, r=0, t=40, b=0),
-        xaxis=dict(
-            title=f"Capacity ({eq_data['unit']})", 
-            showgrid=False, 
-            color="#71717a"
-        ),
-        yaxis=dict(
-            title="Cost (IDR)", 
-            showgrid=True, 
-            gridcolor="#27272a", # Subtle grid
-            color="#71717a",
-            tickformat=".2s"
-        ),
+        template="plotly_white", # Theme Putih Bersih
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=320,
+        xaxis=dict(title=f"Capacity ({eq_data['unit']})", showgrid=True, gridcolor='#f1f5f9'),
+        yaxis=dict(title="Cost (IDR)", showgrid=True, gridcolor='#f1f5f9', tickformat=".2s"),
         hovermode="x unified",
         showlegend=False
     )
     
-    st.markdown("""
-    <div class="tech-card">
-    """, unsafe_allow_html=True)
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True) # End Card
 
 # --- FOOTER ---
-st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("""
-<div style="border-top: 1px solid #27272a; padding-top: 20px; color: #52525b; font-size: 12px; display: flex; justify-content: space-between;">
-    <div>NEXUS ENGINEERING SYSTEM v4.0.2 (Stable)</div>
-    <div>SECURE CONNECTION | INTERNAL USE ONLY</div>
-</div>
+    <div style="text-align: center; color: #94a3b8; font-size: 12px;">
+        System ID: ENG-EST-2025 • Data Source: Turton et al. (2018) • Currency: Real-time Input
+    </div>
 """, unsafe_allow_html=True)
