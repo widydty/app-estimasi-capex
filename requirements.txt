@@ -5,3 +5,4 @@ plotly
 fluids
 scipy
 openpyxl
+pint
