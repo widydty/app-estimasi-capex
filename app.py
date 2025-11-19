@@ -2,159 +2,81 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from scipy.optimize import linprog
 
-# --- 1. CONFIG & HIGH-END CSS ---
-st.set_page_config(page_title="OPTIMUS | NPK System", layout="wide", page_icon="💠")
+# --- 1. CONFIGURATION & STYLE ---
+st.set_page_config(page_title="OPTIMUS NPK", layout="wide", page_icon="💠")
 
+# Styling Modern Enterprise (Tanpa HTML Table yang rentan error)
 st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         
-        /* GLOBAL RESET */
-        .stApp {
-            background-color: #f8fafc; /* Premium Grey */
-            font-family: 'Inter', sans-serif;
-        }
+        .stApp { background-color: #f4f6f9; font-family: 'Inter', sans-serif; }
         
-        /* SIDEBAR STYLING (Dark Theme) */
-        section[data-testid="stSidebar"] {
-            background-color: #0f172a; /* Slate 900 */
-        }
-        section[data-testid="stSidebar"] h1, 
-        section[data-testid="stSidebar"] h2, 
-        section[data-testid="stSidebar"] h3, 
-        section[data-testid="stSidebar"] label, 
-        section[data-testid="stSidebar"] .stMarkdown {
-            color: #e2e8f0 !important;
-        }
-        
-        /* MAIN HEADER */
-        .main-header {
-            font-size: 32px;
-            font-weight: 800;
-            color: #1e293b;
-            letter-spacing: -1px;
-            margin-bottom: 0px;
-        }
-        .sub-header {
-            font-size: 14px;
-            color: #64748b;
-            margin-bottom: 30px;
-            font-weight: 500;
-        }
-
-        /* CUSTOM METRIC CARDS */
-        .metric-container {
+        /* Custom Metric Box */
+        .metric-box {
             background: white;
-            border: 1px solid #e2e8f0;
             border-radius: 12px;
             padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s ease;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-left: 5px solid #3b82f6;
+            transition: transform 0.2s;
         }
-        .metric-container:hover {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            transform: translateY(-2px);
-        }
-        .metric-title {
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #94a3b8;
-            margin-bottom: 8px;
-        }
-        .metric-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: #0f172a;
-        }
-        .metric-delta-pos { color: #10b981; font-size: 13px; font-weight: 600; }
-        .metric-delta-neg { color: #ef4444; font-size: 13px; font-weight: 600; }
-
-        /* CUSTOM HTML TABLE (The "100 Billion" Look) */
-        .styled-table {
-            border-collapse: collapse;
-            margin: 25px 0;
-            font-size: 14px;
-            width: 100%;
-            background-color: white;
+        .metric-box:hover { transform: translateY(-2px); }
+        .metric-label { color: #64748b; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        .metric-value { color: #1e293b; font-size: 32px; font-weight: 800; margin-top: 5px; }
+        .metric-sub { color: #94a3b8; font-size: 13px; margin-top: 2px; }
+        
+        /* Savings Box (Highlight) */
+        .savings-box {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
             border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            border: 1px solid #e2e8f0;
-        }
-        .styled-table thead tr {
-            background-color: #f1f5f9;
-            color: #475569;
-            text-align: left;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.5px;
-        }
-        .styled-table th, .styled-table td {
-            padding: 16px 20px;
-        }
-        .styled-table tbody tr {
-            border-bottom: 1px solid #f1f5f9;
-            transition: background 0.2s;
-        }
-        .styled-table tbody tr:hover {
-            background-color: #f8fafc;
-        }
-        .styled-table tbody tr:last-of-type {
-            border-bottom: none;
-        }
-        .badge-mix {
-            background-color: #eff6ff;
-            color: #2563eb;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 12px;
-        }
-        .cost-text {
-            font-family: 'Roboto Mono', monospace;
-            color: #0f172a;
-            font-weight: 600;
-        }
-
-        /* BUTTONS */
-        .stButton>button {
-            background-color: #3b82f6;
+            padding: 24px;
             color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 8px;
-            font-weight: 600;
-            width: 100%;
-            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
         }
-        .stButton>button:hover {
-            background-color: #2563eb;
+        
+        /* Sidebar */
+        section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
+        
+        /* Chart Container */
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
+        
+        h1, h2, h3 { color: #0f172a !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATABASE & LOGIC ---
+# --- 2. DATABASE ---
 RAW_MATS = {
-    "Urea":         {"N": 46.0, "P": 0.0, "K": 0.0, "S": 0.0, "H2O": 0.5, "Type": "Urea",   "Price": 6500},
-    "ZA (AmSulf)":  {"N": 21.0, "P": 0.0, "K": 0.0, "S": 24.0,"H2O": 1.0, "Type": "Salt",   "Price": 2500},
-    "DAP (16-45)":  {"N": 16.0, "P": 45.0,"K": 0.0, "S": 0.0, "H2O": 1.5, "Type": "Salt",   "Price": 10500},
-    "KCl (MOP)":    {"N": 0.0,  "P": 0.0, "K": 60.0,"S": 0.0, "H2O": 0.5, "Type": "Salt",   "Price": 8200},
-    "Clay":         {"N": 0.0,  "P": 0.0, "K": 0.0, "S": 0.0, "H2O": 2.0, "Type": "Filler", "Price": 250}
+    "Urea":         {"N": 46.0, "P": 0.0, "K": 0.0, "S": 0.0, "Type": "Urea",   "Price": 6500},
+    "ZA (AmSulf)":  {"N": 21.0, "P": 0.0, "K": 0.0, "S": 24.0,"Type": "Salt",   "Price": 2500},
+    "DAP (16-45)":  {"N": 16.0, "P": 45.0,"K": 0.0, "S": 0.0, "Type": "Salt",   "Price": 10500},
+    "KCl (MOP)":    {"N": 0.0,  "P": 0.0, "K": 60.0,"S": 0.0, "Type": "Salt",   "Price": 8200},
+    "Clay":         {"N": 0.0,  "P": 0.0, "K": 0.0, "S": 0.0, "Type": "Filler", "Price": 250}
 }
 
+# Design Guarantee Data (BEDP-02) - Baseline
+GUARANTEE_REF = {
+    "15-15-15": {"Urea": 173.1, "DAP": 343.3, "KCl": 257.5, "ZA": 94.9, "Clay": 161.2},
+    "15-10-12": {"Urea": 215.3, "DAP": 228.9, "KCl": 206.0, "ZA": 89.8, "Clay": 290.0},
+    "16-16-16": {"Urea": 230.9, "DAP": 366.3, "KCl": 274.7, "ZA": 0.0,  "Clay": 158.2}
+}
+
+# --- 3. LOGIC ---
 def calculate_optimization(tn, tp, tk, ts, selected_mats, prices):
     mats = list(selected_mats)
     n_vars = len(mats)
     total_mass = 1000.0
     c = [prices[m] for m in mats]
-    A_ub = []
-    b_ub = []
+    
+    A_ub, b_ub = [], []
+    # Nutrients Constraints
     A_ub.append([-RAW_MATS[m]["N"]/100 for m in mats])
     b_ub.append(-tn/100 * total_mass)
     A_ub.append([-RAW_MATS[m]["P"]/100 for m in mats])
@@ -164,54 +86,55 @@ def calculate_optimization(tn, tp, tk, ts, selected_mats, prices):
     if ts > 0:
         A_ub.append([-RAW_MATS[m]["S"]/100 for m in mats])
         b_ub.append(-ts/100 * total_mass)
+        
+    # Filler Limit
     filler_row = [1.0 if RAW_MATS[m]["Type"] == "Filler" else 0.0 for m in mats]
     if sum(filler_row) > 0:
         A_ub.append(filler_row)
         b_ub.append(300.0)
-    A_eq = [[1.0] * n_vars]
-    b_eq = [total_mass]
+        
+    A_eq, b_eq = [[1.0] * n_vars], [total_mass]
     bounds = [(0, total_mass) for _ in range(n_vars)]
+    
     res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
     return res, mats
 
-# --- 3. UI LAYOUT (THE ENTERPRISE LOOK) ---
+# --- 4. UI LAYOUT ---
 
-# SIDEBAR (DARK & CLEAN)
 with st.sidebar:
-    st.markdown("### 💠 OPTIMUS PRIME")
-    st.markdown("<div style='color:#94a3b8; font-size:12px; margin-bottom:20px;'>NPK ENGINEERING SUITE v5.0</div>", unsafe_allow_html=True)
+    st.markdown("### 🛠️ Control Panel")
+    grade_sel = st.selectbox("Target Grade", ["15-15-15", "15-10-12", "16-16-16", "Custom"])
     
-    st.markdown("#### 1. GRADE TARGET")
-    grade_sel = st.selectbox("Select Grade", ["15-15-15", "15-10-12", "16-16-16", "Custom"], label_visibility="collapsed")
-    
-    if grade_sel == "15-15-15": def_n, def_p, def_k, def_s = 15.0, 15.0, 15.0, 2.0
-    elif grade_sel == "15-10-12": def_n, def_p, def_k, def_s = 15.0, 10.0, 12.0, 2.0
-    elif grade_sel == "16-16-16": def_n, def_p, def_k, def_s = 16.0, 16.0, 16.0, 0.0
-    else: def_n, def_p, def_k, def_s = 15.0, 15.0, 15.0, 0.0
+    if grade_sel == "15-15-15": def_vals = (15.0, 15.0, 15.0, 2.0)
+    elif grade_sel == "15-10-12": def_vals = (15.0, 10.0, 12.0, 2.0)
+    elif grade_sel == "16-16-16": def_vals = (16.0, 16.0, 16.0, 0.0)
+    else: def_vals = (15.0, 15.0, 15.0, 0.0)
     
     col1, col2 = st.columns(2)
-    tn = col1.number_input("N %", value=def_n)
-    tp = col2.number_input("P %", value=def_p)
-    tk = col1.number_input("K %", value=def_k)
-    ts = col2.number_input("S %", value=def_s)
+    tn = col1.number_input("N %", value=def_vals[0])
+    tp = col2.number_input("P %", value=def_vals[1])
+    tk = col1.number_input("K %", value=def_vals[2])
+    ts = col2.number_input("S %", value=def_vals[3])
     
-    st.markdown("#### 2. MARKET PRICES (IDR)")
+    st.markdown("---")
+    st.markdown("### 💵 Market Prices")
     current_prices = {}
     for m, data in RAW_MATS.items():
         current_prices[m] = st.number_input(f"{m}", value=data["Price"], step=100)
         
-    st.markdown("#### 3. ACTION")
-    run_calc = st.button("RUN SIMULATION")
+    st.markdown("---")
+    run = st.button("RUN OPTIMIZATION", type="primary", use_container_width=True)
 
-# MAIN CONTENT
-st.markdown('<div class="main-header">Production Optimization Dashboard</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="sub-header">Optimization Basis: 1.000 kg • Target: NPK {tn}-{tp}-{tk}-{ts}S • Currency: IDR</div>', unsafe_allow_html=True)
+# HEADER
+st.title("OPTIMUS NPK Intelligence")
+st.markdown(f"**Optimization Target:** NPK {tn}-{tp}-{tk}-{ts}S | **Basis:** 1.000 kg")
+st.markdown("---")
 
-if run_calc:
+if run:
     res, mat_order = calculate_optimization(tn, tp, tk, ts, list(RAW_MATS.keys()), current_prices)
     
     if res.success:
-        # DATA PROCESSING
+        # Process Results
         masses = res.x
         df = pd.DataFrame({"Material": mat_order, "Mass": masses})
         df = df[df["Mass"] > 0.1].sort_values("Mass", ascending=False)
@@ -220,139 +143,116 @@ if run_calc:
         df["Mix"] = (df["Mass"] / 1000) * 100
         
         total_cost = df["Cost"].sum()
-        total_mass = df["Mass"].sum()
         
-        # --- ROW 1: METRIC CARDS ---
-        c1, c2, c3, c4 = st.columns(4)
+        # Calculate Savings vs Guarantee
+        savings_text = "N/A"
+        is_saving = False
+        saving_val = 0
+        
+        if grade_sel in GUARANTEE_REF:
+            guar_recipe = GUARANTEE_REF[grade_sel]
+            base_cost = sum([qty * current_prices.get(m, 0) for m, qty in guar_recipe.items() if m in current_prices])
+            saving_val = base_cost - total_cost
+            is_saving = saving_val > 0
+        
+        # --- ROW 1: KEY METRICS (CARD DESIGN) ---
+        c1, c2, c3 = st.columns(3)
         
         with c1:
             st.markdown(f"""
-            <div class="metric-container">
-                <div class="metric-title">Cost of Goods (RM)</div>
+            <div class="metric-box">
+                <div class="metric-label">Cost of Goods (RM)</div>
                 <div class="metric-value">Rp {total_cost/1e6:.2f} M</div>
-                <div class="metric-delta-pos">Per Ton Product</div>
+                <div class="metric-sub">Per Ton Product</div>
             </div>
             """, unsafe_allow_html=True)
             
         with c2:
             st.markdown(f"""
-            <div class="metric-container">
-                <div class="metric-title">Unit Cost (50kg)</div>
+            <div class="metric-box">
+                <div class="metric-label">Unit Cost (Bag)</div>
                 <div class="metric-value">Rp {total_cost/20:,.0f}</div>
-                <div class="metric-delta-pos">Per Bag</div>
+                <div class="metric-sub">Per 50kg Bag</div>
             </div>
             """, unsafe_allow_html=True)
             
         with c3:
-            urea_p = df[df['Material']=='Urea']['Mix'].sum()
+            # Savings Box Highlight
+            bg_color = "linear-gradient(135deg, #059669 0%, #10b981 100%)" if is_saving else "#64748b"
+            sign = "+" if is_saving else ""
             st.markdown(f"""
-            <div class="metric-container">
-                <div class="metric-title">Urea Composition</div>
-                <div class="metric-value">{urea_p:.1f}%</div>
-                <div class="{'metric-delta-pos' if urea_p < 50 else 'metric-delta-neg'}">Safe Limit: 50%</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with c4:
-            st.markdown(f"""
-            <div class="metric-container">
-                <div class="metric-title">Batch Mass Check</div>
-                <div class="metric-value">{total_mass:.0f} kg</div>
-                <div class="metric-delta-pos">Target: 1000 kg</div>
+            <div class="savings-box" style="background: {bg_color};">
+                <div style="font-size:12px; font-weight:600; text-transform:uppercase; opacity:0.9;">Potential Profit Increase</div>
+                <div style="font-size:32px; font-weight:800; margin-top:5px;">{sign}Rp {saving_val/1000:,.0f} k</div>
+                <div style="font-size:13px; opacity:0.9;">Savings per Ton vs Guarantee</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- ROW 2: TABLE & CHART SPLIT ---
-        col_table, col_chart = st.columns([2, 1])
+        # --- ROW 2: TABLE & COMPOSITION ---
+        col_tbl, col_pie = st.columns([2, 1])
         
-        with col_table:
-            # GENERATE HTML TABLE (CUSTOM DESIGN)
-            table_html = """
-            <table class="styled-table">
-                <thead>
-                    <tr>
-                        <th>Raw Material</th>
-                        <th>Mass (kg)</th>
-                        <th>Composition</th>
-                        <th>Unit Price (IDR)</th>
-                        <th>Total Cost (IDR)</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            
-            for _, row in df.iterrows():
-                table_html += f"""
-                <tr>
-                    <td style="font-weight:500; color:#1e293b;">{row['Material']}</td>
-                    <td>{row['Mass']:.2f}</td>
-                    <td><span class="badge-mix">{row['Mix']:.1f}%</span></td>
-                    <td class="cost-text">{row['Price']:,.0f}</td>
-                    <td class="cost-text">{row['Cost']:,.0f}</td>
-                </tr>
-                """
-            
-            table_html += "</tbody></table>"
-            st.markdown(table_html, unsafe_allow_html=True)
-            
-        with col_chart:
-            # HIGH END DONUT CHART
-            # Use custom colors like Bloomberg/Financial Times
-            colors = ['#3b82f6', '#0ea5e9', '#22c55e', '#eab308', '#64748b']
-            
-            fig = go.Figure(data=[go.Pie(
-                labels=df['Material'], 
-                values=df['Mass'], 
-                hole=.6,
-                marker=dict(colors=colors),
-                textinfo='percent',
-                hoverinfo='label+value'
-            )])
-            
-            fig.update_layout(
-                title_text="Formulation Mix",
-                title_font_size=14,
-                title_font_family="Inter",
-                showlegend=True,
-                legend=dict(orientation="h", y=-0.2),
-                margin=dict(t=40, b=0, l=0, r=0),
-                height=350
+        with col_tbl:
+            st.subheader("📋 Optimized Recipe")
+            # Gunakan st.dataframe dengan column_config (Lebih stabil daripada HTML)
+            st.dataframe(
+                df[["Material", "Mass", "Mix", "Price", "Cost"]],
+                column_config={
+                    "Material": st.column_config.TextColumn("Raw Material", width="medium"),
+                    "Mass": st.column_config.NumberColumn("Mass (kg)", format="%.2f"),
+                    "Mix": st.column_config.ProgressColumn("Mix %", format="%.1f%%", min_value=0, max_value=100),
+                    "Price": st.column_config.NumberColumn("Unit Price", format="Rp %.0f"),
+                    "Cost": st.column_config.NumberColumn("Total Cost", format="Rp %.0f"),
+                },
+                use_container_width=True,
+                hide_index=True
             )
-            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_pie:
+            st.subheader("Composition")
+            fig_pie = px.pie(df, values='Mass', names='Material', hole=0.6, 
+                             color_discrete_sequence=px.colors.sequential.RdBu)
+            fig_pie.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=250)
+            st.plotly_chart(fig_pie, use_container_width=True)
 
-        # --- ROW 3: ENGINEERING VALIDATION (STACKED BAR) ---
-        st.markdown("### Nutrient Validation Profile")
+        # --- ROW 3: NUTRIENT VALIDATION (RADAR CHART / BAR) ---
+        st.subheader("🛡️ Nutrient Quality Validation")
+        
+        # Calculate Actuals
         act_n = sum(row["Mass"] * RAW_MATS[row["Material"]]["N"]/100 for _, row in df.iterrows()) / 10
         act_p = sum(row["Mass"] * RAW_MATS[row["Material"]]["P"]/100 for _, row in df.iterrows()) / 10
         act_k = sum(row["Mass"] * RAW_MATS[row["Material"]]["K"]/100 for _, row in df.iterrows()) / 10
         act_s = sum(row["Mass"] * RAW_MATS[row["Material"]]["S"]/100 for _, row in df.iterrows()) / 10
         
-        # Create clean comparison chart
-        fig_bar = go.Figure()
-        fig_bar.add_trace(go.Bar(
-            name='Target', x=['N','P','K','S'], y=[tn, tp, tk, ts],
-            marker_color='#e2e8f0', text=[tn, tp, tk, ts], textposition='auto'
+        # Create Grouped Bar Chart (Clean & Professional)
+        fig_val = go.Figure()
+        
+        nutrients = ['Nitrogen (N)', 'Phosphate (P)', 'Potash (K)', 'Sulfur (S)']
+        targets = [tn, tp, tk, ts]
+        actuals = [act_n, act_p, act_k, act_s]
+        
+        fig_val.add_trace(go.Bar(
+            name='Target Spec', x=nutrients, y=targets,
+            marker_color='#cbd5e1', text=targets, textposition='auto'
         ))
-        fig_bar.add_trace(go.Bar(
-            name='Achieved', x=['N','P','K','S'], y=[act_n, act_p, act_k, act_s],
-            marker_color='#0f172a', text=[f"{x:.1f}" for x in [act_n, act_p, act_k, act_s]], textposition='auto'
+        fig_val.add_trace(go.Bar(
+            name='Achieved (Optimized)', x=nutrients, y=actuals,
+            marker_color='#0f172a', text=[f"{x:.2f}" for x in actuals], textposition='auto'
         ))
         
-        fig_bar.update_layout(
+        fig_val.update_layout(
             barmode='group',
             plot_bgcolor='white',
-            height=300,
+            height=350,
+            yaxis_title="Percentage (%)",
             margin=dict(t=20, b=20, l=20, r=20),
-            yaxis=dict(showgrid=True, gridcolor='#f1f5f9'),
-            font=dict(family="Inter")
+            yaxis=dict(showgrid=True, gridcolor='#f1f5f9')
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    else:
-        st.error("Solution Infeasible: Please adjust constraints or available materials.")
+        st.plotly_chart(fig_val, use_container_width=True)
         
+    else:
+        st.error("Optimization Failed: Constraints cannot be met with current materials.")
+
 else:
-    # EMPTY STATE (CLEAN)
-    st.info("Ready to optimize. Adjust parameters on the left sidebar and click 'RUN SIMULATION'.")
+    st.info("Ready to optimize. Adjust settings in sidebar.")
