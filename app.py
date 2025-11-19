@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 from scipy.optimize import linprog
 
 # --- 1. CONFIGURATION ---
@@ -27,10 +26,11 @@ st.markdown("""
         /* INPUT CARD (LEFT SIDE) */
         .input-container {
             background-color: white;
-            border-radius: 24px; /* Rounded like screenshot */
+            border-radius: 24px;
             padding: 40px;
             box-shadow: 0 10px 40px -10px rgba(0,0,0,0.05);
             height: 100%;
+            border: 1px solid #f3f4f6;
         }
         
         /* OUTPUT CARD (RIGHT SIDE - DARK THEME) */
@@ -40,68 +40,76 @@ st.markdown("""
             border-radius: 24px;
             padding: 40px;
             box-shadow: 0 20px 50px -12px rgba(15, 23, 42, 0.25);
-            height: 100%;
+            min-height: 600px;
             position: relative;
         }
         
         /* TYPOGRAPHY */
         h1 { font-weight: 800; letter-spacing: -0.5px; color: #111827; font-size: 28px; margin-bottom: 10px; }
-        h3 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-top: 20px;}
+        h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-top: 20px; margin-bottom: 10px;}
         
         /* CUSTOM METRIC IN DARK CARD */
         .result-label {
-            font-size: 12px;
-            font-weight: 600;
+            font-size: 11px;
+            font-weight: 700;
             letter-spacing: 1.5px;
             text-transform: uppercase;
             color: #94a3b8; /* Slate 400 */
-            margin-bottom: 8px;
+            margin-bottom: 12px;
         }
         .result-value-big {
-            font-size: 48px;
+            font-size: 42px;
             font-weight: 800;
-            color: #2dd4bf; /* Teal Accent like screenshot */
+            color: #2dd4bf; /* Teal Accent */
             margin-bottom: 5px;
-            line-height: 1;
+            line-height: 1.1;
+            letter-spacing: -1px;
         }
         .result-sub {
             font-size: 14px;
             color: #cbd5e1;
             margin-bottom: 30px;
+            font-weight: 500;
         }
         
         /* MINI RESULT BOX */
         .mini-box {
             background-color: #1e293b; /* Lighter Navy */
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 20px;
             margin-top: 15px;
             border: 1px solid #334155;
         }
         
         /* INPUT STYLING OVERRIDE */
-        .stNumberInput > label { font-weight: 600; color: #374151; }
-        .stSelectbox > label { font-weight: 600; color: #374151; }
+        .stNumberInput > label { font-weight: 600; color: #374151; font-size: 14px; }
+        .stSelectbox > label { font-weight: 600; color: #374151; font-size: 14px; }
         
         /* BUTTON */
         .stButton>button {
             background: linear-gradient(90deg, #4f46e5 0%, #6366f1 100%); /* Indigo Gradient */
             color: white;
             border: none;
-            padding: 0.8rem 0;
-            border-radius: 50px; /* Pill shape */
+            padding: 0.7rem 0;
+            border-radius: 12px;
             font-weight: 600;
             width: 100%;
             box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
             transition: transform 0.1s;
+            margin-top: 20px;
         }
         .stButton>button:hover {
             transform: translateY(-2px);
+            color: white;
         }
         
         /* REMOVE PADDING TOP */
         .block-container { padding-top: 2rem; padding-bottom: 2rem; }
         
+        /* TABLE STYLING */
+        div[data-testid="stDataFrame"] {
+            border: none;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -144,17 +152,17 @@ def solve_opt(tn, tp, tk, ts, prices):
 # --- 4. UI LAYOUT (SPLIT CARD) ---
 
 # TITLE SECTION
-st.markdown("<div style='text-align:center; margin-bottom:30px;'><h1>NPK Pro Formulator</h1><p style='color:#6b7280;'>Optimalisasi Biaya Produksi Pupuk Majemuk (Basis 1 Ton)</p></div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; margin-bottom:40px;'><h1>NPK Pro Formulator</h1><p style='color:#6b7280; font-size:16px;'>Sistem Optimalisasi Biaya Produksi Pupuk Majemuk (Basis 1 Ton)</p></div>", unsafe_allow_html=True)
 
 # CONTAINER SPLIT
-col_input, col_output = st.columns([1.2, 1], gap="large")
+col_input, col_output = st.columns([1.1, 1], gap="large")
 
 # --- LEFT COLUMN: INPUT (LIGHT THEME) ---
 with col_input:
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    st.markdown("### 1. Target Grade")
-    grade_sel = st.selectbox("Pilih Grade", ["15-15-15", "15-10-12", "16-16-16", "Custom"], label_visibility="collapsed")
+    st.markdown("### 1. Target Grade Specification")
+    grade_sel = st.selectbox("Pilih Formula Standar", ["15-15-15", "15-10-12", "16-16-16", "Custom"], label_visibility="collapsed")
     
     # Presets
     if grade_sel == "15-15-15": d = (15,15,15,2)
@@ -168,16 +176,20 @@ with col_input:
     tk = c3.number_input("K %", value=float(d[2]))
     ts = c4.number_input("S %", value=float(d[3]))
     
-    st.markdown("### 2. Market Prices (IDR)")
+    st.markdown("### 2. Market Prices (IDR / Kg)")
     curr_prices = {}
-    for m, p in RAW_MATS.items():
-        curr_prices[m] = p["Price"] # Default hidden, add expander if needed
     
-    # Simulasi Harga Utama (Slider/Input agar interaktif seperti kalkulator)
-    urea_p = st.slider("Harga Urea (Rp/kg)", 4000, 10000, 6500, step=100)
-    curr_prices["Urea"] = urea_p
+    # Input Harga yang rapi (Grid)
+    cp1, cp2 = st.columns(2)
+    with cp1:
+        for i, (m, p) in enumerate(RAW_MATS.items()):
+            if i % 2 == 0: # Ganjil
+                curr_prices[m] = st.number_input(f"{m}", value=p["Price"], step=100)
+    with cp2:
+        for i, (m, p) in enumerate(RAW_MATS.items()):
+            if i % 2 != 0: # Genap
+                curr_prices[m] = st.number_input(f"{m}", value=p["Price"], step=100)
     
-    st.markdown("<br>", unsafe_allow_html=True)
     run_btn = st.button("HITUNG ESTIMASI BIAYA")
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -205,17 +217,25 @@ with col_output:
             # Baseline
             guar_recipe = GUARANTEE_REF.get(grade_sel, {})
             base_cost = sum([qty * curr_prices.get(m, 0) for m, qty in guar_recipe.items()])
-            savings = base_cost - total_cost
+            
+            # Jika base_cost 0 (misal Custom grade), set saving 0
+            if base_cost > 0:
+                savings = base_cost - total_cost
+            else:
+                savings = 0
+                
             is_profit = savings >= 0
             df_show = df.copy()
 
     # RENDER DARK CARD
-    st.markdown(f'<div class="output-container">', unsafe_allow_html=True)
+    st.markdown('<div class="output-container">', unsafe_allow_html=True)
     
     # HEADER RESULT
     st.markdown('<div class="result-label">ESTIMASI BIAYA PRODUKSI (COGS)</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="result-value-big">Rp {total_cost/1e6:,.2f} Jt</div>', unsafe_allow_html=True)
-    st.markdown('<div class="result-sub">Per Metrik Ton Produk</div>', unsafe_allow_html=True)
+    
+    # Format angka rupiah dengan pemisah ribuan koma
+    st.markdown(f'<div class="result-value-big">Rp {total_cost:,.0f}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="result-sub">Total Biaya Bahan Baku per Ton Produk</div>', unsafe_allow_html=True)
     
     # MINI BOX: PROFIT
     color_txt = "#4ade80" if is_profit else "#f87171" # Green vs Red
@@ -223,47 +243,40 @@ with col_output:
     
     st.markdown(f"""
     <div class="mini-box">
-        <div class="result-label">POTENSI PENGHEMATAN VS DESAIN</div>
-        <div style="font-size: 24px; font-weight: 700; color: {color_txt};">
+        <div class="result-label" style="color: #94a3b8;">POTENSI PENGHEMATAN VS DESAIN</div>
+        <div style="font-size: 24px; font-weight: 700; color: {color_txt}; letter-spacing: -0.5px;">
             {sign} Rp {savings:,.0f}
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # MINI BOX: UNIT COST
-    st.markdown(f"""
-    <div class="mini-box">
-        <div class="result-label">HARGA POKOK PER ZAK (50KG)</div>
-        <div style="font-size: 24px; font-weight: 700; color: white;">
-            Rp {total_cost/20:,.0f}
-        </div>
+        <div style="font-size: 12px; color: #64748b; margin-top:5px;">*Dibandingkan dengan Guarantee Figure</div>
     </div>
     """, unsafe_allow_html=True)
     
     # COMPOSITION PREVIEW
     if not df_show.empty:
-        st.markdown("<br><div class="result-label">KOMPOSISI UTAMA</div>", unsafe_allow_html=True)
+        st.markdown('<br><div class="result-label" style="margin-bottom:15px;">KOMPOSISI UTAMA</div>', unsafe_allow_html=True)
         # Simple manual chart using HTML bars for cleaner look in dark mode
-        for _, row in df_show.head(3).iterrows():
+        # FIX: Menggunakan kutip satu untuk pembungkus HTML agar aman
+        for _, row in df_show.head(4).iterrows():
             width = (row['Mass'] / 1000) * 100
+            # Menggunakan f-string dengan kutip satu di luar
             st.markdown(f"""
-            <div style="margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; font-size:13px; color:#e2e8f0;">
+            <div style="margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; font-size:13px; color:#e2e8f0; margin-bottom:4px; font-weight:500;">
                     <span>{row['Material']}</span>
                     <span>{row['Mass']:.1f} kg</span>
                 </div>
-                <div style="background:#334155; height:6px; border-radius:3px; margin-top:4px;">
-                    <div style="background:#6366f1; width:{width}%; height:100%; border-radius:3px;"></div>
+                <div style="background:#334155; height:6px; border-radius:10px; width:100%;">
+                    <div style="background:#6366f1; width:{width}%; height:100%; border-radius:10px;"></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
             
     st.markdown('</div>', unsafe_allow_html=True) # End Output Container
 
-# --- BOTTOM SECTION: TABLE ---
+# --- BOTTOM SECTION: EXPANDER TABLE ---
 if not df_show.empty:
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("Lihat Detail Resep Lengkap", expanded=True):
+    with st.expander("Lihat Rincian Tabel Resep", expanded=False):
         st.dataframe(
             df_show[["Material", "Mass", "Price", "Cost"]],
             column_config={
