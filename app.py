@@ -1,204 +1,202 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import fluids
-from fluids.units import *
 import plotly.express as px
+from scipy.optimize import linprog
 
-# --- CONFIG ---
-st.set_page_config(page_title="HydroGuard | Hydraulic Auditor", layout="wide", page_icon="💧")
+# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="NPK Smart Formulator", layout="wide", page_icon="🌱")
 
-# --- CSS UNTUK TABEL WARNA-WARNI ---
+# --- 2. STYLE ---
 st.markdown("""
     <style>
-        .stApp { background-color: #f4f4f4; }
-        h1 { color: #003366; }
-        div[data-testid="stMetricValue"] { font-size: 24px; }
-        .status-ok { color: green; font-weight: bold; }
-        .status-fail { color: red; font-weight: bold; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        .stApp { background-color: #f0fdf4; font-family: 'Inter', sans-serif; } /* Light Green Tint */
+        
+        /* Headers */
+        h1, h2, h3 { color: #14532d; letter-spacing: -0.5px; font-weight: 800; }
+        
+        /* Cards */
+        .metric-card {
+            background: white; padding: 20px; border-radius: 10px;
+            border: 1px solid #bbf7d0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .metric-val { font-size: 32px; font-weight: 700; color: #16a34a; }
+        .metric-lbl { font-size: 12px; text-transform: uppercase; color: #65a30d; font-weight: 600; }
+        
+        /* Sidebar */
+        section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #dcfce7; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- ENGINE PERHITUNGAN (FLUIDS LIBRARY) ---
-def calculate_hydraulics(df):
-    results = []
-    
-    for index, row in df.iterrows():
-        try:
-            # Ambil data dari row
-            flow_kg_h = row['Flowrate (kg/h)']
-            dens = row['Density (kg/m3)']
-            visc_cp = row['Viscosity (cP)']
-            press_bar = row['Pressure (bar)']
-            size_nps = row['Line Size (NPS)']
-            length = row['Length (m)']
-            phase = row['Phase'] # Liquid / Gas
-            
-            # 1. Convert NPS to Inner Diameter (Schedule 40 Standard)
-            # Menggunakan pendekatan sederhana untuk ID jika library detail tidak load
-            # Di production grade, gunakan fluids.piping.nearest_pipe
-            di_map = {2: 0.0525, 3: 0.0779, 4: 0.1023, 6: 0.1541, 8: 0.2027, 10: 0.2545, 12: 0.3048}
-            ID = di_map.get(size_nps, size_nps * 0.0254) # Fallback inch to meter
-            
-            # 2. Flow Calculation
-            area = np.pi * (ID/2)**2
-            flow_kg_s = flow_kg_h / 3600
-            vol_flow = flow_kg_s / dens
-            velocity = vol_flow / area
-            
-            # 3. Reynolds Number
-            visc_pa_s = visc_cp / 1000
-            Re = fluids.core.Reynolds(V=velocity, D=ID, rho=dens, mu=visc_pa_s)
-            
-            # 4. Friction Factor (Darcy)
-            roughness = 4.57e-5 # Commercial Steel
-            fd = fluids.friction.friction_factor(Re=Re, eD=roughness/ID)
-            
-            # 5. Pressure Drop (Darcy-Weisbach)
-            dP_pa = fluids.core.P_Darcy(D=ID, L=length, f=fd, rho=dens, V=velocity)
-            dP_bar = dP_pa / 1e5
-            dP_per_100m = (dP_bar / length) * 100
-            
-            # 6. Rho-v2 Calculation (Momentum)
-            rhov2 = dens * (velocity**2)
-            
-            # 7. SAFETY CHECK (CRITERIA)
-            status = "PASS"
-            notes = []
-            
-            # Cek Liquid Velocity
-            if phase == "Liquid" and velocity > 3.0:
-                status = "FAIL"
-                notes.append("High Vel (>3 m/s)")
-            
-            # Cek Gas Velocity
-            if phase == "Gas" and velocity > 20.0:
-                status = "FAIL"
-                notes.append("High Vel (>20 m/s)")
-                
-            # Cek Rho-v2 (Vibration Risk API 14E)
-            if rhov2 > 200000: # Limit umum piping
-                status = "FAIL"
-                notes.append("High Vib (Rho-v2)")
-                
-            # Cek Pressure Drop
-            limit_dp = 0.5 if phase == "Liquid" else 0.1 # bar/100m
-            if dP_per_100m > limit_dp:
-                status = "FAIL"
-                notes.append(f"High dP (>{limit_dp} bar/100m)")
+# --- 3. DATABASE BAHAN BAKU (RAW MATERIALS) ---
+# Default specs (Standard Fertilizer Industry)
+# N, P2O5, K2O, Moisture, Cost (Rp/kg)
+RAW_MATS = {
+    "Urea":         {"N": 46.0, "P": 0.0,  "K": 0.0,  "H2O": 0.5, "Price": 6500},
+    "ZA (Ammonium Sulfate)": {"N": 21.0, "P": 0.0,  "K": 0.0,  "H2O": 0.2, "Price": 2500},
+    "DAP (Diammonium Phos)": {"N": 18.0, "P": 46.0, "K": 0.0,  "H2O": 1.0, "Price": 11000},
+    "MAP (Monoammonium Phos)":{"N": 11.0, "P": 52.0, "K": 0.0,  "H2O": 1.0, "Price": 10500},
+    "RP (Rock Phosphate)":   {"N": 0.0,  "P": 28.0, "K": 0.0,  "H2O": 3.0, "Price": 1800},
+    "KCl (MOP)":             {"N": 0.0,  "P": 0.0,  "K": 60.0, "H2O": 0.5, "Price": 8500},
+    "ZK (SOP)":              {"N": 0.0,  "P": 0.0,  "K": 50.0, "H2O": 0.5, "Price": 12000},
+    "Dolomite (Filler)":     {"N": 0.0,  "P": 0.0,  "K": 0.0,  "H2O": 0.5, "Price": 500},
+    "Clay (Filler)":         {"N": 0.0,  "P": 0.0,  "K": 0.0,  "H2O": 2.0, "Price": 300},
+}
 
-            results.append({
-                "Stream Name": row['Stream Name'],
-                "Velocity (m/s)": round(velocity, 2),
-                "dP (bar/100m)": round(dP_per_100m, 3),
-                "Rho-v2": round(rhov2, 0),
-                "Re": int(Re),
-                "Status": status,
-                "Notes": ", ".join(notes) if notes else "OK"
-            })
-            
-        except Exception as e:
-            results.append({"Stream Name": row['Stream Name'], "Status": "ERROR", "Notes": str(e)})
-            
-    return pd.DataFrame(results)
-
-# --- UI LAYOUT ---
-st.title("🛡️ HydroGuard Engineering Auditor")
-st.markdown("### Automated Piping Hydraulics & Safety Check System")
-st.info("Upload data pipa Anda, sistem akan melakukan audit velocity, pressure drop, dan risiko vibrasi (API 14E) secara otomatis.")
-
-# --- 1. INPUT SECTION ---
-col_ctrl, col_template = st.columns([1, 2])
-
-with col_ctrl:
-    st.subheader("1. Input Data")
-    st.write("Silakan isi parameter di tabel sebelah kanan atau paste dari Excel.")
+# --- 4. OPTIMIZATION ENGINE (LINEAR PROGRAMMING) ---
+def optimize_formula(target_n, target_p, target_k, selected_mats, total_mass=1000):
+    """
+    Menggunakan Simplex Method untuk mencari resep termurah.
+    Constraints:
+    1. Mass Balance Total = 1000 kg
+    2. Total N >= Target N
+    3. Total P >= Target P
+    4. Total K >= Target K
+    Objective: Minimize Cost
+    """
     
-    # Template Data Generator
-    default_data = pd.DataFrame([
-        {"Stream Name": "Feed Pump Suction", "Flowrate (kg/h)": 50000, "Density (kg/m3)": 980, "Viscosity (cP)": 1.2, "Pressure (bar)": 2, "Line Size (NPS)": 6, "Length (m)": 50, "Phase": "Liquid"},
-        {"Stream Name": "Feed Pump Discharge", "Flowrate (kg/h)": 50000, "Density (kg/m3)": 980, "Viscosity (cP)": 1.2, "Pressure (bar)": 25, "Line Size (NPS)": 4, "Length (m)": 120, "Phase": "Liquid"},
-        {"Stream Name": "Gas Outlet", "Flowrate (kg/h)": 15000, "Density (kg/m3)": 12, "Viscosity (cP)": 0.02, "Pressure (bar)": 10, "Line Size (NPS)": 8, "Length (m)": 200, "Phase": "Gas"},
-        {"Stream Name": "High Velocity Case", "Flowrate (kg/h)": 80000, "Density (kg/m3)": 950, "Viscosity (cP)": 1.0, "Pressure (bar)": 5, "Line Size (NPS)": 3, "Length (m)": 20, "Phase": "Liquid"},
-    ])
+    mats = [m for m in selected_mats]
+    n_vars = len(mats)
+    
+    # Objective Function (Minimize Cost)
+    c = [RAW_MATS[m]["Price"] for m in mats]
+    
+    # Constraints Matrix (A_eq * x = b_eq) -> Mass Balance Total
+    A_eq = [[1.0] * n_vars]
+    b_eq = [total_mass]
+    
+    # Constraints Inequality (A_ub * x >= b_ub  -->  -A_ub * x <= -b_ub)
+    # Kita pakai 'greater than or equal' karena spek pupuk itu minimal (misal N minimal 15%)
+    # Scipy linprog pakai '<=', jadi kita kalikan -1
+    A_ub = []
+    b_ub = []
+    
+    # N Balance
+    A_ub.append([-RAW_MATS[m]["N"]/100 for m in mats])
+    b_ub.append(-target_n/100 * total_mass)
+    
+    # P Balance
+    A_ub.append([-RAW_MATS[m]["P"]/100 for m in mats])
+    b_ub.append(-target_p/100 * total_mass)
+    
+    # K Balance
+    A_ub.append([-RAW_MATS[m]["K"]/100 for m in mats])
+    b_ub.append(-target_k/100 * total_mass)
 
-with col_template:
-    # Editable Dataframe (Fitur Mewah Streamlit)
-    input_df = st.data_editor(default_data, num_rows="dynamic", use_container_width=True)
-
-# --- 2. EXECUTION ---
-if st.button("🚀 RUN HYDRAULIC SIMULATION", type="primary"):
+    # Bounds (0 to Total Mass)
+    bounds = [(0, total_mass) for _ in range(n_vars)]
     
-    result_df = calculate_hydraulics(input_df)
+    # Solve
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
     
-    # Gabungkan Input + Output
-    final_df = pd.concat([input_df.reset_index(drop=True), result_df.reset_index(drop=True)], axis=1)
-    # Hapus kolom stream name duplikat
-    final_df = final_df.loc[:,~final_df.columns.duplicated()]
-
-    # --- 3. DASHBOARD HASIL ---
-    st.divider()
-    st.subheader("📊 Audit Report")
-    
-    # Summary Metrics
-    total_lines = len(final_df)
-    failed_lines = len(final_df[final_df['Status'] == "FAIL"])
-    pass_lines = total_lines - failed_lines
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Lines Checked", total_lines)
-    m2.metric("Lines Passed ✅", pass_lines)
-    m3.metric("Lines Failed ❌", failed_lines, delta_color="inverse")
-    
-    # Visualisasi Gagal vs Berhasil
-    if failed_lines > 0:
-        st.warning(f"⚠️ Perhatian: Ditemukan {failed_lines} line pipa yang melanggar kriteria desain!")
+    if res.success:
+        return {
+            "success": True,
+            "recipe": dict(zip(mats, res.x)),
+            "total_cost": res.fun
+        }
     else:
-        st.success("✅ Semua desain aman dan memenuhi standar.")
+        return {"success": False, "message": res.message}
 
-    # --- TABEL DETAIL DENGAN WARNA ---
-    # Menggunakan Styler Pandas untuk mewarnai baris
-    def highlight_status(val):
-        color = '#ffcdd2' if val == 'FAIL' else '#c8e6c9'
-        return f'background-color: {color}'
+# --- 5. UI LAYOUT ---
+st.title("🌱 NPK SMART FORMULATOR")
+st.markdown("### Least Cost Formulation (LCF) Optimizer")
 
-    st.dataframe(
-        final_df.style.applymap(highlight_status, subset=['Status']),
-        use_container_width=True
-    )
+# SIDEBAR INPUT
+with st.sidebar:
+    st.header("🎯 Target Grade")
     
-    # --- GRAFIK ANALISA ---
-    col_g1, col_g2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
+    t_n = c1.number_input("N %", 0.0, 30.0, 15.0)
+    t_p = c2.number_input("P %", 0.0, 30.0, 15.0)
+    t_k = c3.number_input("K %", 0.0, 30.0, 15.0)
     
-    with col_g1:
-        # Scatter Plot Velocity vs Line Size
-        fig = px.scatter(final_df, x="Line Size (NPS)", y="Velocity (m/s)", 
-                         color="Status", size="Flowrate (kg/h)",
-                         hover_data=["Stream Name"], title="Velocity Profile Audit")
-        # Tambah garis batas
-        fig.add_hline(y=3, line_dash="dot", annotation_text="Max Liquid Limit (3 m/s)", annotation_position="top right")
-        st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
+    st.header("📦 Raw Material Availability")
+    st.write("Uncheck if material is out of stock")
+    
+    active_mats = []
+    for mat in RAW_MATS.keys():
+        # Default selected
+        def_val = True
+        if mat in ["MAP", "ZK", "RP"]: def_val = False # Default off for premium/raw items
         
-    with col_g2:
-        # Bar Chart Failure Reasons
-        if failed_lines > 0:
-            fail_data = final_df[final_df['Status'] == 'FAIL']
-            # Pecah notes jika ada multiple error
-            all_notes = []
-            for note in fail_data['Notes']:
-                all_notes.extend(note.split(", "))
+        if st.checkbox(f"{mat} (Rp {RAW_MATS[mat]['Price']})", value=def_val):
+            active_mats.append(mat)
             
-            counts = pd.Series(all_notes).value_counts().reset_index()
-            counts.columns = ['Issue', 'Count']
-            
-            fig2 = px.bar(counts, x='Count', y='Issue', orientation='h', title="Top Design Violations", color='Count')
-            st.plotly_chart(fig2, use_container_width=True)
+    st.markdown("---")
+    st.info("Optimization Basis: **1000 kg (1 Ton) Product**")
 
-    # Download Button
-    csv = final_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download Excel Report",
-        data=csv,
-        file_name='Hydraulic_Audit_Report.csv',
-        mime='text/csv',
-    )
+# MAIN DASHBOARD
+if st.button("🚀 OPTIMIZE RECIPE", type="primary"):
+    
+    if not active_mats:
+        st.error("Please select at least some raw materials.")
+    else:
+        with st.spinner("Calculating optimal formulation..."):
+            result = optimize_formula(t_n, t_p, t_k, active_mats)
+            
+        if result["success"]:
+            recipe = result["recipe"]
+            total_cost = result["total_cost"]
+            
+            # --- TOP METRICS ---
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"""<div class="metric-card"><div class="metric-lbl">Cost per Ton</div><div class="metric-val">Rp {total_cost:,.0f}</div></div>""", unsafe_allow_html=True)
+            
+            # Hitung Real Content
+            real_n = sum([recipe[m] * RAW_MATS[m]["N"]/100 for m in active_mats]) / 10
+            real_p = sum([recipe[m] * RAW_MATS[m]["P"]/100 for m in active_mats]) / 10
+            real_k = sum([recipe[m] * RAW_MATS[m]["K"]/100 for m in active_mats]) / 10
+            
+            c2.markdown(f"""<div class="metric-card"><div class="metric-lbl">Grade Achieved</div><div class="metric-val">{real_n:.1f}-{real_p:.1f}-{real_k:.1f}</div></div>""", unsafe_allow_html=True)
+            
+            # Total Mass Check
+            total_mass_calc = sum(recipe.values())
+            c3.markdown(f"""<div class="metric-card"><div class="metric-lbl">Total Batch Mass</div><div class="metric-val">{total_mass_calc:.0f} kg</div></div>""", unsafe_allow_html=True)
+
+            st.markdown("---")
+            
+            # --- DETAILED RECIPE & VISUALS ---
+            col_table, col_chart = st.columns([1, 1])
+            
+            # Dataframe Prep
+            df_recipe = pd.DataFrame.from_dict(recipe, orient='index', columns=['Mass (kg)'])
+            df_recipe = df_recipe[df_recipe['Mass (kg)'] > 0.1] # Filter yang 0
+            df_recipe['Cost (Rp)'] = df_recipe.index.map(lambda x: df_recipe.loc[x, 'Mass (kg)'] * RAW_MATS[x]['Price'])
+            df_recipe['% Composition'] = (df_recipe['Mass (kg)'] / 1000) * 100
+            
+            with col_table:
+                st.subheader("📋 Production Recipe")
+                st.dataframe(
+                    df_recipe.style.format({"Mass (kg)": "{:.2f}", "Cost (Rp)": "Rp {:,.0f}", "% Composition": "{:.1f}%"}),
+                    use_container_width=True
+                )
+                
+                # Download Button
+                csv = df_recipe.to_csv().encode('utf-8')
+                st.download_button("📥 Download Recipe to DCS/Excel", csv, "NPK_Recipe.csv", "text/csv")
+            
+            with col_chart:
+                st.subheader("📊 Composition vs Cost")
+                # Sunburst Chart or Pie Chart
+                fig = px.pie(df_recipe, values='Mass (kg)', names=df_recipe.index, 
+                             title="Mass Breakdown (kg)", hole=0.4,
+                             color_discrete_sequence=px.colors.sequential.Greens_r)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Cost Bar
+                fig2 = px.bar(df_recipe, x=df_recipe.index, y='Cost (Rp)', 
+                              title="Cost Contribution (Where does the money go?)",
+                              text_auto='.2s', color='Cost (Rp)', color_continuous_scale='RdYlGn_r')
+                st.plotly_chart(fig2, use_container_width=True)
+                
+        else:
+            st.error(f"Optimization Failed: {result['message']}")
+            st.warning("Hint: Mungkin target Grade terlalu tinggi untuk bahan baku yang dipilih (misal minta K tinggi tapi KCl tidak dicentang).")
+
+# --- FOOTER ---
+st.markdown("---")
+st.caption("NPK Process Intelligence System | Linear Programming Engine | Formula Basis: 1000 kg")
