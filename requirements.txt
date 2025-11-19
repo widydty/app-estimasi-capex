@@ -2,7 +2,4 @@ streamlit
 pandas
 numpy
 plotly
-fluids
 scipy
-openpyxl
-pint
