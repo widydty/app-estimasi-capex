@@ -1,0 +1,113 @@
+{
+  "description": "Demo Hydrant Network - Simple branching system",
+  "notes": [
+    "Source S at 8 bar supply pressure",
+    "Junction J1 splits flow to J2 and H1",
+    "Junction J2 feeds hydrant H2",
+    "Elevations: J2 at 2m, H2 at 3m (uphill)",
+    "Both hydrants demand 500 L/min when active"
+  ],
+  "network": {
+    "nodes": [
+      {
+        "node_id": "S",
+        "type": "source",
+        "elevation_m": 0.0,
+        "demand_lpm": 0.0,
+        "is_active": true
+      },
+      {
+        "node_id": "J1",
+        "type": "junction",
+        "elevation_m": 0.0,
+        "demand_lpm": 0.0,
+        "is_active": true
+      },
+      {
+        "node_id": "J2",
+        "type": "junction",
+        "elevation_m": 2.0,
+        "demand_lpm": 0.0,
+        "is_active": true
+      },
+      {
+        "node_id": "H1",
+        "type": "hydrant",
+        "elevation_m": 0.0,
+        "demand_lpm": 500.0,
+        "is_active": true
+      },
+      {
+        "node_id": "H2",
+        "type": "hydrant",
+        "elevation_m": 3.0,
+        "demand_lpm": 500.0,
+        "is_active": true
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "P1",
+        "from_node": "S",
+        "to_node": "J1",
+        "length_m": 50.0,
+        "diameter_mm": 150.0,
+        "roughness_mm": 0.045,
+        "minor_K": 0.5,
+        "minor_components": [
+          {"name": "gate_valve_open", "K": 0.2},
+          {"name": "tee_run", "K": 0.3}
+        ]
+      },
+      {
+        "edge_id": "P2",
+        "from_node": "J1",
+        "to_node": "J2",
+        "length_m": 30.0,
+        "diameter_mm": 100.0,
+        "roughness_mm": 0.045,
+        "minor_K": 1.4,
+        "minor_components": [
+          {"name": "elbow_90_standard", "K": 0.9},
+          {"name": "tee_run", "K": 0.3},
+          {"name": "gate_valve_open", "K": 0.2}
+        ]
+      },
+      {
+        "edge_id": "P3",
+        "from_node": "J1",
+        "to_node": "H1",
+        "length_m": 20.0,
+        "diameter_mm": 65.0,
+        "roughness_mm": 0.045,
+        "minor_K": 4.4,
+        "minor_components": [
+          {"name": "tee_branch", "K": 1.0},
+          {"name": "elbow_90_standard", "K": 0.9},
+          {"name": "hydrant_outlet", "K": 2.5}
+        ]
+      },
+      {
+        "edge_id": "P4",
+        "from_node": "J2",
+        "to_node": "H2",
+        "length_m": 25.0,
+        "diameter_mm": 65.0,
+        "roughness_mm": 0.045,
+        "minor_K": 4.4,
+        "minor_components": [
+          {"name": "tee_branch", "K": 1.0},
+          {"name": "elbow_90_standard", "K": 0.9},
+          {"name": "hydrant_outlet", "K": 2.5}
+        ]
+      }
+    ],
+    "source_pressure_bar": 8.0,
+    "fluid": {
+      "density_kg_m3": 998.0,
+      "viscosity_pa_s": 0.001002
+    },
+    "include_elevation": true,
+    "pressure_unit": "bar"
+  }
+}
